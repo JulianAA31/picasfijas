@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Picas y Fijas</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
+        input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        .box { border: 1px solid #ccc; padding: 1rem; margin-bottom: 1rem; border-radius: 8px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <h1>🎮 Picas y Fijas</h1>
+
+    <div id="login-section" class="box">
+        <h3>1. Iniciar Sesión</h3>
+        <input type="text" id="player-name" placeholder="Tu nombre">
+        <button type="button" onclick="login()">Entrar</button>
+    </div>
+
+    <div id="game-section" class="hidden">
+        <p>Bienvenido, <strong id="display-name"></strong> (ID: <span id="display-id"></span>)</p>
+
+        <div class="box">
+            <h3>2. Crear Juego</h3>
+            <input type="text" id="secret-number" placeholder="Tu número secreto (4 dígitos distintos)">
+            <button type="button" onclick="createGame()">Crear Juego</button>
+        </div>
+
+        <div class="box">
+            <h3>3. Unirse a un Juego</h3>
+            <input type="text" id="join-id" placeholder="ID del Juego (ej. a1b2c3d4)">
+            <input type="text" id="join-number" placeholder="Tu número secreto (4 dígitos distintos)">
+            <button type="button" onclick="joinGame()">Unirse</button>
+        </div>
+
+        <div id="play-section" class="box hidden">
+            <h3>4. Jugar</h3>
+            <p>Estado del juego: <strong id="game-status"></strong></p>
+            <p>Turno actual ID: <span id="current-turn"></span></p>
+            <input type="text" id="guess-number" placeholder="Adivina el número (4 dígitos)">
+            <button type="button" onclick="play()">Enviar Intento</button>
+            <p id="result" style="font-weight: bold;"></p>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin;
+        let myPlayerId = "";
+        let myGameId = "";
+        let myName = "";
+
+        async function login() {
+            console.log("Intentando conectar...");
+            const name = document.getElementById('player-name').value;
+            if (!name) return alert("Escribe tu nombre");
+
+            try {
+                const res = await fetch(API_URL + '/login', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: name })
+                });
+                console.log("Respuesta recibida:", res.status);
+
+                if (res.ok) {
+                    const data = await res.json();
+                    myPlayerId = data.id; myName = data.name;
+                    document.getElementById('login-section').classList.add('hidden');
+                    document.getElementById('game-section').classList.remove('hidden');
+                    document.getElementById('display-name').innerText = myName;
+                    document.getElementById('display-id').innerText = myPlayerId;
+                } else {
+                    const err = await res.json();
+                    alert("Error " + res.status + ": " + err.error);
+                }
+            } catch (error) {
+                console.error("Error en fetch:", error);
+                alert("Error de red o servidor no disponible: " + error.message);
+            }
+        }
+
+        async function createGame() {
+            const numero = document.getElementById('secret-number').value;
+            try {
+                const res = await fetch(API_URL + '/juego', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ playerId: myPlayerId, numero: numero })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    myGameId = data.id;
+                    alert("Juego creado. Comparte este ID: " + myGameId);
+                    updateGameUI(data);
+                } else { alert(data.error); }
+            } catch(e) { alert("Error de red"); }
+        }
+
+        async function joinGame() {
+            const id = document.getElementById('join-id').value;
+            const numero = document.getElementById('join-number').value;
+            try {
+                const res = await fetch(API_URL + '/juego/' + id, {
+                    method: 'PUT', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ playerId: myPlayerId, numero: numero })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    myGameId = id;
+                    alert("Te has unido. ¡El juego ha comenzado!");
+                    updateGameUI(data);
+                } else { alert(data.error); }
+            } catch(e) { alert("Error de red"); }
+        }
+
+        async function play() {
+            const numero = document.getElementById('guess-number').value;
+            try {
+                const res = await fetch(API_URL + '/juego/' + myGameId + '/jugar', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ playerId: myPlayerId, numero: numero })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    let htmlResult = "Resultado: " + data.fijas + " Fijas y " + data.picas + " Picas <br> Turno: " + (data.turno || "Nadie (Terminado)");
+                    if (data.estado === 'terminado') {
+                        htmlResult += "<br><span style='color:green'>¡Juego Terminado! Ganador: " + data.ganador.name + "</span>";
+                    }
+                    document.getElementById('result').innerHTML = htmlResult;
+                    document.getElementById('current-turn').innerText = data.turno || "Nadie (Terminado)";
+                } else { alert(data.error); }
+            } catch(e) { alert("Error de red"); }
+        }
+
+        function updateGameUI(game) {
+            document.getElementById('play-section').classList.remove('hidden');
+            document.getElementById('game-status').innerText = game.estado;
+            document.getElementById('current-turn').innerText = game.turno;
+        }
+    </script>
+</body>
+</html>

@@ -1,14 +1,16 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
+const path = require('path');
 
 const app = express();
-app.use(express.static('public'));
+// 1. Permitir que Killercoda envíe JSON sin problemas
+app.use(express.json({ type: '*/*' })); 
+// 2. Servir la carpeta public
+app.use(express.static(path.join(__dirname, 'public'))); 
 
-// ---------- Almacenamiento en memoria ----------
-const players = new Map(); // playerId -> { id, name }
-const games   = new Map(); // gameId   -> game
+const players = new Map();
+const games   = new Map();
 
-// ---------- Utilidades ----------
 function numeroValido(numero) {
   const s = String(numero ?? '');
   if (!/^\d{4}$/.test(s)) return false;
@@ -27,21 +29,14 @@ function calcularPicasFijas(secreto, intento) {
 
 function vistaPublica(g) {
   return {
-    id: g.id,
-    estado: g.estado,
-    creador: g.creador,
-    turno: g.turno,
-    ganador: g.ganador,
+    id: g.id, estado: g.estado, creador: g.creador, turno: g.turno, ganador: g.ganador,
     jugadores: g.jugadores.map(j => ({ id: j.id, name: j.name, intentos: j.intentos })),
     creado: g.creado
   };
 }
 
-// ---------- Health (Kubernetes lo usará) ----------
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
-app.get('/ready',  (_req, res) => res.json({ status: 'ready' }));
 
-// ---------- POST /login ----------
 app.post('/login', (req, res) => {
   const { name } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) {
@@ -52,18 +47,15 @@ app.post('/login', (req, res) => {
   res.status(201).json(player);
 });
 
-// ---------- POST /juego (crear) ----------
 app.post('/juego', (req, res) => {
   const { playerId, numero } = req.body || {};
   const player = players.get(playerId);
   if (!player) return res.status(401).json({ error: 'jugador no registrado. Use /login' });
-  if (!numeroValido(numero)) {
-    return res.status(400).json({ error: 'numero invalido: 4 digitos distintos, sin letras' });
-  }
+  if (!numeroValido(numero)) return res.status(400).json({ error: 'numero invalido: 4 digitos distintos, sin letras' });
+
   const id = uuidv4().slice(0, 8);
   const game = {
-    id, estado: 'iniciado',
-    creador: { id: player.id, name: player.name },
+    id, estado: 'iniciado', creador: { id: player.id, name: player.name },
     jugadores: [{ id: player.id, name: player.name, numero: String(numero), intentos: [] }],
     turno: null, ganador: null, creado: new Date().toISOString()
   };
@@ -71,7 +63,6 @@ app.post('/juego', (req, res) => {
   res.status(201).json(vistaPublica(game));
 });
 
-// ---------- PUT /juego/:id (unirse) ----------
 app.put('/juego/:id', (req, res) => {
   const game = games.get(req.params.id);
   if (!game) return res.status(404).json({ error: 'juego no encontrado' });
@@ -79,10 +70,9 @@ app.put('/juego/:id', (req, res) => {
 
   const { playerId, numero } = req.body || {};
   const player = players.get(playerId);
-  if (!player) return res.status(401).json({ error: 'jugador no registrado. Use /login' });
-  if (!numeroValido(numero)) return res.status(400).json({ error: 'numero invalido: 4 digitos distintos, sin letras' });
+  if (!player) return res.status(401).json({ error: 'jugador no registrado' });
+  if (!numeroValido(numero)) return res.status(400).json({ error: 'numero invalido' });
   if (game.jugadores.some(j => j.id === playerId)) return res.status(409).json({ error: 'ya estas en este juego' });
-  if (game.jugadores.length >= 2) return res.status(409).json({ error: 'juego lleno' });
 
   game.jugadores.push({ id: player.id, name: player.name, numero: String(numero), intentos: [] });
   game.estado = 'en_juego';
@@ -90,7 +80,6 @@ app.put('/juego/:id', (req, res) => {
   res.json(vistaPublica(game));
 });
 
-// ---------- POST /juego/:id/jugar ----------
 app.post('/juego/:id/jugar', (req, res) => {
   const game = games.get(req.params.id);
   if (!game) return res.status(404).json({ error: 'juego no encontrado' });
@@ -100,7 +89,7 @@ app.post('/juego/:id/jugar', (req, res) => {
   const jugador = game.jugadores.find(j => j.id === playerId);
   if (!jugador) return res.status(403).json({ error: 'no participas en este juego' });
   if (game.turno !== playerId) return res.status(409).json({ error: 'no es tu turno' });
-  if (!numeroValido(numero)) return res.status(400).json({ error: 'numero invalido: 4 digitos distintos, sin letras' });
+  if (!numeroValido(numero)) return res.status(400).json({ error: 'numero invalido' });
 
   const oponente = game.jugadores.find(j => j.id !== playerId);
   const { fijas, picas } = calcularPicasFijas(oponente.numero, String(numero));
@@ -118,14 +107,12 @@ app.post('/juego/:id/jugar', (req, res) => {
   res.json({ fijas, picas, turno: game.turno, estado: game.estado, ganador });
 });
 
-// ---------- GET /juego/:id ----------
 app.get('/juego/:id', (req, res) => {
   const game = games.get(req.params.id);
   if (!game) return res.status(404).json({ error: 'juego no encontrado' });
   res.json(vistaPublica(game));
 });
 
-// ---------- GET /juego ----------
 app.get('/juego', (req, res) => {
   const { estado } = req.query;
   const lista = [...games.values()]
