@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: picasfijas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: picasfijas
+  template:
+    metadata:
+      labels:
+        app: picasfijas
+    spec:
+      containers:
+      - name: picasfijas
+        image: picasfijas:1.0
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3000
